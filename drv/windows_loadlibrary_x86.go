@@ -1,6 +1,6 @@
 //go:build windows && 386
 
-package driver
+package drv
 
 import (
 	"fmt"

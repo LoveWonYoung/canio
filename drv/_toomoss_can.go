@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package driver
+package drv
 
 import (
 	"context"

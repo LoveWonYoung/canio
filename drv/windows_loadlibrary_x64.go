@@ -1,6 +1,6 @@
 //go:build windows && amd64
 
-package driver
+package drv
 
 import (
 	"fmt"
