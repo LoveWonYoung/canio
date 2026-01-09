@@ -126,7 +126,7 @@ func logCANMessage(direction string, id uint32, dlc byte, data []byte, canType C
 	}
 	format := "%s %s: ID=0x%03X, DLC=%02d, Data=% 02X"
 	log.Printf(format, direction, typeStr, id, dataLenToDlc(dlc), data)
-	fmt.Printf(format+"\n", direction, typeStr, id, dataLenToDlc(dlc), data)
+	// fmt.Printf(format+"\n", direction, typeStr, id, dataLenToDlc(dlc), data)
 }
 
 func NewCanMix(canType CanType) *CanMix {
