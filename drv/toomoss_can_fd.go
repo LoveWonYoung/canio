@@ -170,6 +170,7 @@ func (c *CanMix) Init() error {
 
 func (c *CanMix) Start() {
 	log.Println("CAN-FD驱动的中央读取服务已启动...")
+	c.drainInitialBuffer()
 	go c.readLoop()
 }
 
@@ -179,6 +180,24 @@ func (c *CanMix) Stop() {
 	UsbClose()
 }
 
+// drainInitialBuffer 从设备反复读取直到没有剩余消息，目的是在驱动正式进入
+// readLoop 前清空硬件缓存，避免初始化时把历史报文一次性塞满 rxChan
+func (c *CanMix) drainInitialBuffer() {
+	var canFDMsg [MsgBufferSize]CANFD_MSG
+	for {
+		n, _, _ := syscall.SyscallN(
+			CANFD_GetMsg,
+			uintptr(DevHandle[DEVIndex]),
+			uintptr(CanChannel),
+			uintptr(unsafe.Pointer(&canFDMsg[0])),
+			uintptr(len(canFDMsg)),
+		)
+		if int(n) <= 0 {
+			break
+		}
+		// 若需要可在此统计已丢弃数量，当前选择静默丢弃以减少启动日志噪声
+	}
+}
 func (c *CanMix) readLoop() {
 	ticker := time.NewTicker(PollingInterval)
 	defer ticker.Stop()
