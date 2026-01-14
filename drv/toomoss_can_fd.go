@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -16,7 +17,7 @@ import (
 const (
 	RxChannelBufferSize = 1024                  // 接收通道缓冲区大小
 	MsgBufferSize       = 1024                  // 消息缓冲区大小
-	PollingInterval     = time.Millisecond      // 轮询间隔
+	PollingInterval     = time.Millisecond * 5    // 轮询间隔
 	InitDelay           = 20 * time.Millisecond // 初始化延迟
 )
 
@@ -116,6 +117,9 @@ type CanMix struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	canType CanType
+	txMu    sync.Mutex
+	lastTx  time.Time
+	minTxGap time.Duration
 }
 
 // logCANMessage 统一的CAN消息日志记录函数
@@ -136,6 +140,7 @@ func NewCanMix(canType CanType) *CanMix {
 		ctx:     ctx,
 		cancel:  cancel,
 		canType: canType,
+		minTxGap: 5 * time.Millisecond, // hardware needs a few ms gap between frames
 	}
 }
 
@@ -257,6 +262,9 @@ func (c *CanMix) Write(id int32, data []byte) error {
 		return fmt.Errorf("数据长度 %d 超过CAN最大长度8", len(data))
 	}
 
+	c.txMu.Lock()
+	defer c.txMu.Unlock()
+
 	var canFDMsg [1]CANFD_MSG
 	var tempData [64]byte
 	copy(tempData[:], data)
@@ -275,15 +283,22 @@ func (c *CanMix) Write(id int32, data []byte) error {
 		canFDMsg[0].DLC = 8
 	}
 	canFDMsg[0].Data = tempData
-	sendRet, _, _ := syscall.SyscallN(CANFD_SendMsg, uintptr(DevHandle[DEVIndex]), uintptr(CanChannel), uintptr(unsafe.Pointer(&canFDMsg[0])), uintptr(len(canFDMsg)))
 
-	if int(sendRet) == len(canFDMsg) {
-		logCANMessage("TX", uint32(id), byte(len(data)), canFDMsg[0].Data[:canFDMsg[0].DLC], c.canType)
-	} else {
-		log.Printf("错误: CAN/CANFD消息发送失败, ID=0x%03X", id)
-		return errors.New("CAN/CANFD消息发送失败")
+	if c.minTxGap > 0 {
+		if gap := c.minTxGap - time.Since(c.lastTx); gap > 0 {
+			time.Sleep(gap)
+		}
 	}
-	return nil
+
+	sendRet, _, _ := syscall.SyscallN(CANFD_SendMsg, uintptr(DevHandle[DEVIndex]), uintptr(CanChannel), uintptr(unsafe.Pointer(&canFDMsg[0])), uintptr(len(canFDMsg)))
+	if int(sendRet) == len(canFDMsg) {
+		c.lastTx = time.Now()
+		logCANMessage("TX", uint32(id), byte(len(data)), canFDMsg[0].Data[:canFDMsg[0].DLC], c.canType)
+		return nil
+	}
+
+	log.Printf("错误: CAN/CANFD消息发送失败, ID=0x%03X", id)
+	return errors.New("CAN/CANFD消息发送失败")
 }
 
 func (c *CanMix) RxChan() <-chan UnifiedCANMessage { return c.rxChan }
